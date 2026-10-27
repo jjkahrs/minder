@@ -31,6 +31,7 @@ export interface Agent {
 
 export interface Session extends Agent {
   cwd?: string;
+  inFile?: boolean; // seen in a session file, so a later missing file means the process is gone
   subagents: Record<string, Agent>;
 }
 
@@ -192,18 +193,35 @@ export interface SessionFile {
 
 const FILE_STATES: Record<string, AgentState> = { busy: 'THINKING', idle: 'IDLE', shell: 'SHELL' };
 
-// Adds sessions that were already running when Minder started. Sessions Minder already knows are left alone.
+// Adds sessions from live session files that Minder doesn't know yet (started before Minder, or before their
+// first hook) and flags every session seen in a file. Known sessions keep their hook-driven state.
+// Returns `prev` unchanged (same reference) when nothing changed.
 export function seed(prev: MinderState, files: SessionFile[], now: number): MinderState {
+  const todo = files.filter((f) => !prev.sessions[f.sessionId]?.inFile);
+  if (!todo.length) return prev;
   const state = structuredClone(prev);
-  for (const f of files) {
-    if (state.sessions[f.sessionId]) continue;
-    const s: Session = { ...newAgent(f.sessionId, now), cwd: f.cwd, subagents: {} };
+  for (const f of todo) {
+    const known = state.sessions[f.sessionId];
+    if (known) {
+      known.inFile = true;
+      continue;
+    }
+    const s: Session = { ...newAgent(f.sessionId, now), cwd: f.cwd, inFile: true, subagents: {} };
     s.state = FILE_STATES[f.status ?? ''] ?? 'IDLE';
     s.stateSince = Math.min(f.statusUpdatedAt ?? now, now);
     s.log.push({ t: now, event: 'Discovered', detail: f.status });
     state.sessions[f.sessionId] = s;
   }
   return state;
+}
+
+// Sessions once seen in a session file whose file is now gone or whose process died: crashed or killed
+// processes never send SessionEnd. Sessions only ever seen via hooks are left to STALE timing.
+export function vanished(state: MinderState, files: SessionFile[]): string[] {
+  const live = new Set(files.map((f) => f.sessionId));
+  return Object.values(state.sessions)
+    .filter((s) => s.inFile && s.state !== 'ENDED' && !live.has(s.id))
+    .map((s) => s.id);
 }
 
 // Time-driven transitions: ERROR flash ends, ENDED removal, STALE, 30-min removal.

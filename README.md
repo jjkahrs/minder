@@ -17,8 +17,8 @@ npm run dev          # Vite HMR for the UI plus the server (restarts on server/s
 - `MINDER_PORT` overrides the port (`MINDER_PORT=4800 npm start`). The server binds `127.0.0.1` only.
 - `MINDER_DATA_DIR` overrides where sound config and uploads live (default `./data`).
 - `MINDER_SESSIONS_DIR` overrides where Claude Code's session files are read from (default `~/.claude/sessions`).
-- State is in memory only. On startup the server discovers sessions that are already running (see
-  [Startup discovery](#startup-discovery)); everything after that comes from hooks.
+- State is in memory only. The server discovers running sessions from Claude Code's session files at startup
+  and every 5 s after (see [Session discovery](#session-discovery)); everything else comes from hooks.
 
 ## Hooks
 
@@ -89,16 +89,23 @@ IDLE (`Stop`/`SubagentStop`) and ENDED (`SessionEnd`). Exits 1 with a clear mess
 | ERROR | PostToolUseFailure | orange cross, 1.5 s flash, then THINKING |
 | IDLE | Stop (session), SubagentStop (subagent) | dim ring |
 | SHELL | startup discovery only: session file `status: "shell"` | blue, still reticle |
-| ENDED | SessionEnd | fades out, removed after 3 s |
+| ENDED | SessionEnd, or its session file/process is gone (detail `process gone`) | fades out, removed after 3 s |
 | STALE | no events for 10 min | dimmed; removed after 30 min |
 
-## Startup discovery
+## Session discovery
 
-Sessions that were running before Minder started don't send hooks until they next do something, so the server
-reads Claude Code's per-process session files **once at startup** and adds every live one it doesn't
-already know. Hook events then take over as usual. Subagents of those sessions are not discoverable this way;
-they appear when they next fire a hook. Discovered sessions follow normal timing (STALE after 10 min of no
-hooks, removed after 30 min).
+Sessions that were running before Minder started don't send hooks until they next do something, and a crashed
+or killed process never sends `SessionEnd`. So the server reads Claude Code's per-process session files **at
+startup and every 5 s**:
+- A live session it doesn't know yet is added. Hook events then take over as usual; the file's status is only
+  used for that first state.
+- A session that was seen in a file but whose file is now gone or whose process is dead gets a synthetic
+  `SessionEnd` (reason `process gone`): same ENDED fade, log entry and SessionEnd sound as a real one.
+- Sessions only ever seen through hooks (no file) are never ended this way; they follow normal STALE timing.
+  That way a file-format change can't wipe every session.
+
+Subagents are not discoverable this way; they appear when they next fire a hook and end with their session.
+Discovered sessions follow normal timing (STALE after 10 min of no hooks, removed after 30 min).
 
 **This file format is undocumented by Claude Code** and was observed on Windows with versions 2.1.309–2.1.311.
 It may change without notice; Minder skips any file it can't read or that lacks the fields below, so a

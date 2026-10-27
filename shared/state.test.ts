@@ -3,6 +3,7 @@ import {
   emptyState,
   reduce,
   seed,
+  vanished,
   tick,
   summarizeInput,
   LOG_CAP,
@@ -241,11 +242,26 @@ describe('seed (sessions running before Minder started)', () => {
   it('never overwrites a session already known from hooks', () => {
     const prev = run([ev('PreToolUse', { tool_name: 'Bash' })]);
     const s = seed(prev, [{ sessionId: S, status: 'idle' }], 5000);
-    expect(s.sessions[S]).toEqual(prev.sessions[S]);
+    expect(s.sessions[S]).toEqual({ ...prev.sessions[S], inFile: true });
+  });
+
+  it('returns the same reference when a rescan finds nothing new', () => {
+    const s = seed(emptyState(), [{ sessionId: 'a', status: 'idle' }], 1000);
+    expect(seed(s, [{ sessionId: 'a', status: 'busy' }], 6000)).toBe(s);
   });
 
   it('hooks take over a seeded session', () => {
     const s = reduce(seed(emptyState(), [{ sessionId: S, status: 'shell' }], 1000), ev('UserPromptSubmit'), 2000);
     expect(s.sessions[S].state).toBe('THINKING');
+  });
+});
+
+describe('vanished (process gone without SessionEnd)', () => {
+  it('lists only file-seen, not-ended sessions missing from the live files', () => {
+    let s = run([ev('UserPromptSubmit'), ev('UserPromptSubmit', { session_id: 'hook-only' })]);
+    s = seed(s, [{ sessionId: S }, { sessionId: 'a' }, { sessionId: 'b' }], 2000);
+    s = reduce(s, ev('SessionEnd', { session_id: 'b' }), 3000);
+    expect(vanished(s, [{ sessionId: 'a' }])).toEqual([S]);
+    expect(vanished(s, [{ sessionId: S }, { sessionId: 'a' }])).toEqual([]);
   });
 });

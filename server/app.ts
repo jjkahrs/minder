@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { emptyState, reduce, seed, tick, type HookEvent, type MinderState, type SessionFile } from '../shared/state.ts';
+import { emptyState, reduce, seed, tick, vanished, type HookEvent, type MinderState, type SessionFile } from '../shared/state.ts';
 import { defaultConfig, parseConfig, SAFE_FILE, type SoundConfig } from '../shared/sounds.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +49,7 @@ export interface MinderApp {
 export async function createApp({
   dev = false,
   tickMs = 1000,
+  scanMs = 5000,
   dataDir = process.env.MINDER_DATA_DIR || path.join(ROOT, 'data'),
   sessionsDir = process.env.MINDER_SESSIONS_DIR || path.join(os.homedir(), '.claude', 'sessions'),
 } = {}): Promise<MinderApp> {
@@ -61,7 +62,8 @@ export async function createApp({
       return defaultConfig();
     }
   };
-  // Sessions already running at startup won't send hooks until they next do something; discover them once.
+  // Sessions already running at startup won't send hooks until they next do something; discover them now,
+  // then rescan every scanMs for new sessions and for processes that died without a SessionEnd hook.
   let state = seed(emptyState(), readSessionFiles(sessionsDir), Date.now());
   const clients = new Set<http.ServerResponse>();
   const send = (res: http.ServerResponse, event: string, data: unknown) =>
@@ -75,6 +77,18 @@ export async function createApp({
       broadcast('snapshot', state);
     }
   }, tickMs);
+
+  const scanner = setInterval(() => {
+    const files = readSessionFiles(sessionsDir);
+    // Synthetic SessionEnd: same ENDED fade/removal, log entry and sound as a real one.
+    for (const id of vanished(state, files))
+      ingest({ session_id: id, hook_event_name: 'SessionEnd', reason: 'process gone' });
+    const next = seed(state, files, Date.now());
+    if (next !== state) {
+      state = next;
+      broadcast('snapshot', state);
+    }
+  }, scanMs);
 
   function ingest(ev: HookEvent) {
     state = reduce(state, ev, Date.now());
@@ -218,6 +232,7 @@ export async function createApp({
     getState: () => state,
     close: async () => {
       clearInterval(timer);
+      clearInterval(scanner);
       clients.forEach((c) => c.end());
       await vite?.close();
       await new Promise<void>((r) => server.close(() => r()));
