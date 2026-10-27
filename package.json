@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "install-hooks": "node hooks/install.ts",
-    "uninstall-hooks": "node hooks/install.ts --uninstall"
+    "uninstall-hooks": "node hooks/install.ts --uninstall",
+    "simulate": "node server/simulate.ts"
   },
   "dependencies": {
     "react": "^19.3.1",
