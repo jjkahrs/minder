@@ -1,0 +1,181 @@
+:root {
+  --bg: #0a0d14;
+  --surface: #121824;
+  --accent: #73fffe;
+  --accent2: #6287f8;
+  --structure: #383e65;
+  --warn: #ff6e21;
+  --text: #e2f1f8;
+  /* System fonts only (no network load): Bahnschrift ships with Windows. */
+  --font-head: 'Bahnschrift SemiCondensed', Bahnschrift, 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--font-mono); overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, [role='button']:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.tag, h1, .state, .toggle button, .link, .alert, dt {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+.dim { color: var(--structure); }
+
+/* L-shaped corner brackets instead of a boxed border. */
+.brackets {
+  --b: var(--structure);
+  --l: 14px;
+  background:
+    linear-gradient(var(--b), var(--b)) top left / var(--l) 1px,
+    linear-gradient(var(--b), var(--b)) top left / 1px var(--l),
+    linear-gradient(var(--b), var(--b)) top right / var(--l) 1px,
+    linear-gradient(var(--b), var(--b)) top right / 1px var(--l),
+    linear-gradient(var(--b), var(--b)) bottom left / var(--l) 1px,
+    linear-gradient(var(--b), var(--b)) bottom left / 1px var(--l),
+    linear-gradient(var(--b), var(--b)) bottom right / var(--l) 1px,
+    linear-gradient(var(--b), var(--b)) bottom right / 1px var(--l);
+  background-repeat: no-repeat;
+}
+
+/* ---------- state colors + motion (shared by radar, tree, detail) ---------- */
+.st-THINKING { color: var(--accent2); }
+.st-TOOL { color: var(--accent); }
+.st-WAITING_PERMISSION, .st-WAITING_INPUT, .st-ERROR { color: var(--warn); }
+.st-IDLE { color: var(--text); }
+.st-ENDED, .st-STALE { color: var(--structure); }
+
+.glyph { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.glyph .core { fill: currentColor; stroke: none; }
+.glyph text.mark { fill: currentColor; stroke: none; text-anchor: middle; font: 700 1em var(--font-head); }
+.glyph.st-TOOL .core { filter: drop-shadow(0 0 4px var(--accent)); }
+.glyph.st-TOOL .brk { stroke-width: 1.2; }
+.glyph.st-IDLE .ring { opacity: 0.7; }
+.glyph.st-IDLE .core { opacity: 0.5; }
+.glyph.st-STALE .ring { stroke-dasharray: 2 3; }
+.glyph.st-STALE .core { opacity: 0.4; }
+.glyph .sel { stroke: var(--accent); stroke-width: 1; opacity: 0.9; }
+.glyph .sel circle { stroke-dasharray: 3 5; }
+
+.spin { stroke-dasharray: 5 4; transform-box: fill-box; transform-origin: center; animation: spin 1.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Waiting: the loudest thing on screen. Glow + expanding pulse rings. */
+.glyph.st-WAITING_PERMISSION .ring, .glyph.st-WAITING_INPUT .ring { stroke-width: 2.5; fill: rgb(255 110 33 / 0.18); filter: drop-shadow(0 0 6px var(--warn)); }
+.pulse { transform-box: fill-box; transform-origin: center; animation: pulse 1.1s ease-out infinite; }
+.pulse-2 { animation-delay: 0.55s; }
+@keyframes pulse { from { transform: scale(1); opacity: 0.9; } to { transform: scale(3); opacity: 0; } }
+
+/* ERROR: transient glitch flicker (reducer flips back to THINKING after 1.5s). */
+.glyph.st-ERROR { animation: flicker 120ms steps(2) infinite; }
+.glyph.st-ERROR .x { stroke-width: 2.5; }
+@keyframes flicker { 50% { opacity: 0.25; } } /* opacity only: a CSS transform would override the SVG translate */
+
+/* ENDED: fade out over the server's 3s linger before removal. */
+.radar .contact.st-ENDED, .tree .tree-session.st-ENDED { animation: fadeout 2.8s ease-in forwards; }
+@keyframes fadeout { to { opacity: 0; } }
+.contact.st-STALE, .tree-session.st-STALE { opacity: 0.45; }
+
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+
+/* ---------- HUD ---------- */
+.app { position: relative; height: 100%; }
+.hud { position: absolute; top: 18px; left: 28px; display: flex; align-items: baseline; gap: 28px; z-index: 2; }
+.hud h1 { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: 0.35em; font-weight: 600; }
+.hud h1 .dim { font-size: 11px; letter-spacing: 0.25em; }
+.counts { display: flex; gap: 18px; font: 11px var(--font-head); letter-spacing: 0.2em; color: var(--structure); }
+.counts b { color: var(--text); font: 15px var(--font-mono); margin-left: 4px; }
+.toggle { display: flex; border-bottom: 1px solid var(--structure); }
+.toggle button { padding: 4px 12px; font-size: 11px; color: var(--structure); transition: color 120ms, box-shadow 120ms; }
+.toggle button.on { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+.toggle button:hover { color: var(--text); }
+
+.link { position: absolute; top: 20px; right: 28px; font-size: 11px; display: flex; gap: 8px; align-items: center; z-index: 2; }
+.link i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.link.up { color: var(--accent); }
+.link.up i { box-shadow: 0 0 8px var(--accent); }
+.link.down { color: var(--warn); }
+.link.down i { animation: flicker 400ms steps(2) infinite; }
+
+.alert {
+  position: absolute; top: 56px; left: 28px; z-index: 2; padding: 4px 12px;
+  color: var(--bg); background: var(--warn); font-size: 12px; font-weight: 700;
+  box-shadow: 0 0 18px rgb(255 110 33 / 0.6); animation: alertpulse 1.1s ease-in-out infinite;
+}
+@keyframes alertpulse { 50% { box-shadow: 0 0 4px rgb(255 110 33 / 0.2); } }
+
+/* ---------- radar ---------- */
+.radar { position: absolute; inset: 0; width: 100%; height: 100%; }
+.radar .grid { stroke: var(--structure); fill: none; stroke-width: 1; }
+.radar .grid circle:nth-child(odd) { stroke-dasharray: 2 6; }
+.radar text { font: 10px var(--font-head); letter-spacing: 0.2em; stroke: none; }
+.radar .deg { fill: var(--structure); text-anchor: middle; }
+.radar .coord { fill: var(--structure); }
+.radar .sweep { animation: spin 6s linear infinite; pointer-events: none; }
+.radar .sweep path { fill: var(--accent); }
+.radar .sweep line { stroke: var(--accent); stroke-width: 1.5; opacity: 0.6; }
+.radar .empty { fill: var(--structure); text-anchor: middle; font-size: 13px; }
+.radar .contact { animation: fadein 180ms ease-out; }
+.radar .orbit { fill: none; stroke: var(--structure); stroke-dasharray: 1 5; }
+.radar .tether { stroke: var(--structure); stroke-width: 0.75; opacity: 0.6; }
+.radar .node { cursor: pointer; outline: none; }
+.radar .node:focus-visible .glyph { filter: drop-shadow(0 0 6px var(--accent)); }
+.radar .node .hit { fill: transparent; stroke: none; }
+.radar .node:hover .glyph { filter: brightness(1.4); }
+.radar .label { fill: var(--text); font-size: 13px; }
+.radar .tag { fill: currentColor; font-size: 10px; }
+
+/* ---------- tree ---------- */
+.tree { position: absolute; inset: 96px 420px 24px 56px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding-right: 12px; }
+.tree .empty { color: var(--structure); font-family: var(--font-head); letter-spacing: 0.2em; }
+.tree-session { padding: 12px 14px; animation: fadein 180ms ease-out; }
+.tree-session:nth-child(even) { margin-left: 28px; } /* staggered, not a grid */
+.tree-session > header { font-size: 10px; color: var(--structure); margin-bottom: 6px; }
+.tree-session > header .dim { margin-left: 10px; letter-spacing: 0.05em; text-transform: none; font-family: var(--font-mono); }
+.tree ul { list-style: none; margin: 0 0 0 18px; padding: 0 0 0 14px; border-left: 1px solid var(--structure); }
+.tree li { position: relative; }
+.tree li::before { content: ''; position: absolute; left: -14px; top: 50%; width: 12px; border-top: 1px solid var(--structure); }
+.row {
+  display: grid; grid-template-columns: 32px 160px 150px 1fr 64px; align-items: center; gap: 10px;
+  width: 100%; text-align: left; padding: 4px 6px; transition: background 120ms;
+}
+.row:hover { background: var(--surface); }
+.row.selected { background: var(--surface); box-shadow: inset 2px 0 var(--accent); }
+.row.st-WAITING_PERMISSION, .row.st-WAITING_INPUT { box-shadow: inset 3px 0 var(--warn); background: rgb(255 110 33 / 0.08); }
+.row .reticle { width: 32px; height: 32px; overflow: visible; }
+.row .who { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .state { font-size: 11px; }
+.row .what { color: var(--text); opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .since { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- detail panel ---------- */
+.detail {
+  --b: var(--accent);
+  position: absolute; top: 88px; right: 32px; width: 360px; max-height: calc(100% - 120px);
+  display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; z-index: 3;
+  background-color: rgb(18 24 36 / 0.92); backdrop-filter: blur(3px);
+  animation: fadein 150ms ease-out;
+}
+.detail > header { display: flex; justify-content: space-between; align-items: center; }
+.detail > header .tag { font-size: 10px; color: var(--accent); }
+.detail .close { font-size: 18px; line-height: 1; color: var(--structure); transition: color 120ms; }
+.detail .close:hover { color: var(--warn); }
+.state-line { display: flex; gap: 14px; align-items: center; }
+.reticle.big { width: 60px; height: 60px; overflow: visible; }
+.state-line .state { font-size: 16px; }
+.counter { font-size: 26px; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
+.detail .tool { color: var(--accent); }
+.detail .tool .tag { font-size: 10px; color: var(--accent2); margin-right: 6px; }
+.detail .tool .summary { color: var(--text); opacity: 0.8; word-break: break-all; }
+.detail dl { display: grid; grid-template-columns: 90px 1fr; gap: 3px 10px; margin: 0; }
+.detail dt { font-size: 10px; color: var(--accent2); align-self: center; }
+.detail dd { margin: 0; }
+.detail dd.wrap { word-break: break-all; }
+.detail > .tag { font-size: 10px; color: var(--accent2); border-top: 1px solid var(--structure); padding-top: 8px; }
+.log { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 80px; font-size: 11.5px; }
+.log li { padding: 2px 0; animation: fadein 150ms ease-out; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log time { color: var(--structure); }
+.log b { color: var(--accent2); font-weight: 400; }
