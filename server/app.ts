@@ -1,0 +1,154 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { emptyState, reduce, tick, type HookEvent, type MinderState } from '../shared/state.ts';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DIST = path.join(ROOT, 'dist');
+const MAX_BODY = 5 * 1024 * 1024; // tool_input can carry whole file contents
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+export interface MinderApp {
+  server: http.Server;
+  getState: () => MinderState;
+  close: () => Promise<void>;
+}
+
+// SSE stream at GET /api/stream:
+//   event: snapshot  data: MinderState               (on connect and after every change)
+//   event: hook      data: { event: HookEvent-subset, state of target agent }  (after each ingested hook)
+export async function createApp({ dev = false, tickMs = 1000 } = {}): Promise<MinderApp> {
+  let state = emptyState();
+  const clients = new Set<http.ServerResponse>();
+  const send = (res: http.ServerResponse, event: string, data: unknown) =>
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const broadcast = (event: string, data: unknown) => clients.forEach((c) => send(c, event, data));
+
+  const timer = setInterval(() => {
+    const next = tick(state, Date.now());
+    if (next !== state) {
+      state = next;
+      broadcast('snapshot', state);
+    }
+  }, tickMs);
+
+  function ingest(ev: HookEvent) {
+    state = reduce(state, ev, Date.now());
+    const s = state.sessions[ev.session_id];
+    const target = ev.agent_id ? (s?.subagents[ev.agent_id] ?? s) : s;
+    broadcast('hook', {
+      hook_event_name: ev.hook_event_name,
+      session_id: ev.session_id,
+      agent_id: ev.agent_id,
+      notification_type: ev.notification_type,
+      state: target?.state,
+    });
+    broadcast('snapshot', state);
+  }
+
+  let vite: import('vite').ViteDevServer | undefined;
+  const server = http.createServer(async (req, res) => {
+    // Reject DNS-rebinding requests: only loopback Host headers are served.
+    const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+    if (host !== '127.0.0.1' && host !== 'localhost') {
+      res.writeHead(403).end();
+      return;
+    }
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+    if (req.method === 'POST' && url.pathname === '/hook') {
+      // Claude Code http hooks treat a 2xx empty body as success; always answer fast with 204.
+      let size = 0;
+      const chunks: Buffer[] = [];
+      for await (const c of req) {
+        size += c.length;
+        if (size > MAX_BODY) {
+          res.writeHead(413).end();
+          return;
+        }
+        chunks.push(c);
+      }
+      let ev: HookEvent;
+      try {
+        ev = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      if (typeof ev?.session_id !== 'string' || typeof ev.hook_event_name !== 'string') {
+        res.writeHead(400).end();
+        return;
+      }
+      ingest(ev);
+      res.writeHead(204).end();
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/stream') {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      send(res, 'snapshot', state);
+      clients.add(res);
+      req.on('close', () => clients.delete(res));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/state') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(state));
+      return;
+    }
+
+    if (vite) {
+      vite.middlewares(req, res);
+      return;
+    }
+    serveStatic(url.pathname, res);
+  });
+
+  if (dev) {
+    const { createServer } = await import('vite');
+    vite = await createServer({
+      root: ROOT,
+      appType: 'spa',
+      server: { middlewareMode: true, hmr: { server } },
+    });
+  }
+
+  return {
+    server,
+    getState: () => state,
+    close: async () => {
+      clearInterval(timer);
+      clients.forEach((c) => c.end());
+      await vite?.close();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
+
+function serveStatic(pathname: string, res: http.ServerResponse) {
+  let file = path.join(DIST, path.normalize(decodeURIComponent(pathname)));
+  if (!file.startsWith(DIST)) {
+    res.writeHead(403).end();
+    return;
+  }
+  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html'); // SPA fallback
+  if (!fs.existsSync(file)) {
+    res.writeHead(404, { 'content-type': 'text/plain' }).end('UI not built. Run `npm start` (or `npm run build`).');
+    return;
+  }
+  res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+}
