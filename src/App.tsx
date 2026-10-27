@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { soundKeyFor } from '../shared/sounds.ts';
 import type { MinderState } from '../shared/state.ts';
 import { Detail } from './Detail.tsx';
 import { Radar } from './Radar.tsx';
+import { playSound } from './sound.ts';
+import { Sounds, useSoundConfig } from './Sounds.tsx';
 import { Tree } from './Tree.tsx';
 import { findSelected, isWaiting, type Selection } from './ui.ts';
 
@@ -11,6 +14,9 @@ export function App() {
   const [view, setView] = useState<'radar' | 'tree'>('radar');
   const [sel, setSel] = useState<Selection | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [cfg, setCfg] = useSoundConfig();
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -25,7 +31,10 @@ export function App() {
     const connect = () => {
       es = new EventSource('/api/stream');
       es.addEventListener('snapshot', (e) => setState(JSON.parse((e as MessageEvent).data)));
-      // Phase 4 (sounds): es.addEventListener('hook', ...) goes here.
+      es.addEventListener('hook', (e) => {
+        const key = soundKeyFor(JSON.parse((e as MessageEvent).data));
+        if (key && cfgRef.current) playSound(key, cfgRef.current);
+      });
       es.onopen = () => setConnected(true);
       es.onerror = () => {
         setConnected(false);
@@ -73,7 +82,7 @@ export function App() {
       <div className={`link ${connected ? 'up' : 'down'}`} role="status">
         <i /> {connected ? 'LINK ONLINE' : 'NO SIGNAL // RECONNECTING'}
       </div>
-      {/* Phase 4: sound settings panel / "enable audio" affordance mounts here (bottom-left corner slot). */}
+      {cfg && <Sounds cfg={cfg} onChange={setCfg} />}
 
       {waiting > 0 && (
         <div className="alert" role="alert">

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { emptyState, reduce, tick, type HookEvent, type MinderState } from '../shared/state.ts';
+import { defaultConfig, parseConfig, SAFE_FILE, type SoundConfig } from '../shared/sounds.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -16,6 +17,19 @@ const TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
+// Accepted uploads: extension -> served content-type.
+const AUDIO: Record<string, string> = {
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
+};
+const MAX_SOUND = 10 * 1024 * 1024;
 
 export interface MinderApp {
   server: http.Server;
@@ -26,7 +40,25 @@ export interface MinderApp {
 // SSE stream at GET /api/stream:
 //   event: snapshot  data: MinderState               (on connect and after every change)
 //   event: hook      data: { event: HookEvent-subset, state of target agent }  (after each ingested hook)
-export async function createApp({ dev = false, tickMs = 1000 } = {}): Promise<MinderApp> {
+// Sound REST (data dir = MINDER_DATA_DIR or ./data, created on demand):
+//   GET  /api/config                       -> SoundConfig (missing/corrupt file -> defaults)
+//   PUT  /api/config  body SoundConfig      -> 200 saved config | 400
+//   POST /api/sounds?name=<orig filename>   raw audio body -> 201 { file } | 400 | 413 | 415
+//   GET  /api/sounds/<file>                 -> audio bytes | 404
+export async function createApp({
+  dev = false,
+  tickMs = 1000,
+  dataDir = process.env.MINDER_DATA_DIR || path.join(ROOT, 'data'),
+} = {}): Promise<MinderApp> {
+  const configFile = path.join(dataDir, 'config.json');
+  const soundsDir = path.join(dataDir, 'sounds');
+  const readConfig = (): SoundConfig => {
+    try {
+      return parseConfig(JSON.parse(fs.readFileSync(configFile, 'utf8'))) ?? defaultConfig();
+    } catch {
+      return defaultConfig();
+    }
+  };
   let state = emptyState();
   const clients = new Set<http.ServerResponse>();
   const send = (res: http.ServerResponse, event: string, data: unknown) =>
@@ -67,19 +99,11 @@ export async function createApp({ dev = false, tickMs = 1000 } = {}): Promise<Mi
 
     if (req.method === 'POST' && url.pathname === '/hook') {
       // Claude Code http hooks treat a 2xx empty body as success; always answer fast with 204.
-      let size = 0;
-      const chunks: Buffer[] = [];
-      for await (const c of req) {
-        size += c.length;
-        if (size > MAX_BODY) {
-          res.writeHead(413).end();
-          return;
-        }
-        chunks.push(c);
-      }
+      const body = await readBody(req, res, MAX_BODY);
+      if (!body) return;
       let ev: HookEvent;
       try {
-        ev = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        ev = JSON.parse(body.toString('utf8'));
       } catch {
         res.writeHead(400).end();
         return;
@@ -110,6 +134,66 @@ export async function createApp({ dev = false, tickMs = 1000 } = {}): Promise<Mi
       return;
     }
 
+    if (url.pathname === '/api/config' && req.method === 'GET') {
+      json(res, 200, readConfig());
+      return;
+    }
+    if (url.pathname === '/api/config' && req.method === 'PUT') {
+      const body = await readBody(req, res, 64 * 1024);
+      if (!body) return;
+      let cfg: SoundConfig | null = null;
+      try {
+        cfg = parseConfig(JSON.parse(body.toString('utf8')));
+      } catch {}
+      if (!cfg) {
+        res.writeHead(400).end();
+        return;
+      }
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(configFile + '.tmp', JSON.stringify(cfg, null, 2));
+      fs.renameSync(configFile + '.tmp', configFile); // atomic-ish: never leave a half-written config
+      json(res, 200, cfg);
+      return;
+    }
+
+    if (url.pathname === '/api/sounds' && req.method === 'POST') {
+      // Raw body upload (no multipart dep). The original name only contributes a sanitized stem + extension.
+      const name = url.searchParams.get('name') ?? '';
+      const ext = path.extname(name).toLowerCase();
+      const type = String(req.headers['content-type'] ?? '');
+      if (!AUDIO[ext] || !(type.startsWith('audio/') || type === 'application/octet-stream')) {
+        res.writeHead(415).end();
+        return;
+      }
+      const body = await readBody(req, res, MAX_SOUND);
+      if (!body) return;
+      if (body.length === 0) {
+        res.writeHead(400).end();
+        return;
+      }
+      const stem = path.basename(name, path.extname(name)).replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40) || 'sound';
+      const file = `${stem}-${Date.now().toString(36)}${ext}`;
+      fs.mkdirSync(soundsDir, { recursive: true });
+      fs.writeFileSync(path.join(soundsDir, file), body);
+      json(res, 201, { file });
+      return;
+    }
+    if (url.pathname.startsWith('/api/sounds/') && req.method === 'GET') {
+      // Only server-generated basenames are servable, so no separators or '..' can get through.
+      let file = '';
+      try {
+        file = decodeURIComponent(url.pathname.slice('/api/sounds/'.length));
+      } catch {}
+      const full = path.join(soundsDir, file);
+      if (!SAFE_FILE.test(file) || !fs.existsSync(full)) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': AUDIO[path.extname(file).toLowerCase()], 'cache-control': 'no-cache' });
+      fs.createReadStream(full).pipe(res);
+      return;
+    }
+
     if (vite) {
       vite.middlewares(req, res);
       return;
@@ -136,6 +220,30 @@ export async function createApp({ dev = false, tickMs = 1000 } = {}): Promise<Mi
       await new Promise<void>((r) => server.close(() => r()));
     },
   };
+}
+
+const json = (res: http.ServerResponse, code: number, data: unknown) =>
+  res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(data));
+
+// Buffers the request body; answers 413 and returns null once it exceeds max.
+async function readBody(req: http.IncomingMessage, res: http.ServerResponse, max: number): Promise<Buffer | null> {
+  if (Number(req.headers['content-length']) > max) {
+    res.writeHead(413).end();
+    req.resume(); // drain so the client gets the 413 instead of a reset
+    return null;
+  }
+  let size = 0;
+  const chunks: Buffer[] = [];
+  // Keep reading (discarding) past the cap: returning from for-await would destroy the socket.
+  for await (const c of req) {
+    size += c.length;
+    if (size <= max) chunks.push(c);
+  }
+  if (size > max) {
+    res.writeHead(413).end();
+    return null;
+  }
+  return Buffer.concat(chunks);
 }
 
 function serveStatic(pathname: string, res: http.ServerResponse) {
