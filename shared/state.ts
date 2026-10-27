@@ -8,6 +8,7 @@ export type AgentState =
   | 'WAITING_INPUT'
   | 'ERROR'
   | 'IDLE'
+  | 'SHELL'
   | 'ENDED'
   | 'STALE';
 
@@ -178,6 +179,30 @@ export function reduce(prev: MinderState, ev: HookEvent, now: number): MinderSta
   // A session event revives a stale session even when it targeted a subagent.
   if (target !== session && session.state === 'STALE') setState(session, session.staleFrom ?? 'IDLE', now);
   pushLog(target, { t: now, event: name, detail });
+  return state;
+}
+
+// Subset of ~/.claude/sessions/<pid>.json that Minder reads. Undocumented Claude Code file; see README.
+export interface SessionFile {
+  sessionId: string;
+  cwd?: string;
+  status?: string; // seen: 'busy' | 'idle' | 'shell'
+  statusUpdatedAt?: number;
+}
+
+const FILE_STATES: Record<string, AgentState> = { busy: 'THINKING', idle: 'IDLE', shell: 'SHELL' };
+
+// Adds sessions that were already running when Minder started. Sessions Minder already knows are left alone.
+export function seed(prev: MinderState, files: SessionFile[], now: number): MinderState {
+  const state = structuredClone(prev);
+  for (const f of files) {
+    if (state.sessions[f.sessionId]) continue;
+    const s: Session = { ...newAgent(f.sessionId, now), cwd: f.cwd, subagents: {} };
+    s.state = FILE_STATES[f.status ?? ''] ?? 'IDLE';
+    s.stateSince = Math.min(f.statusUpdatedAt ?? now, now);
+    s.log.push({ t: now, event: 'Discovered', detail: f.status });
+    state.sessions[f.sessionId] = s;
+  }
   return state;
 }
 

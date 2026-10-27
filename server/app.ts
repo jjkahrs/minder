@@ -1,8 +1,9 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { emptyState, reduce, tick, type HookEvent, type MinderState } from '../shared/state.ts';
+import { emptyState, reduce, seed, tick, type HookEvent, type MinderState, type SessionFile } from '../shared/state.ts';
 import { defaultConfig, parseConfig, SAFE_FILE, type SoundConfig } from '../shared/sounds.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,6 +50,7 @@ export async function createApp({
   dev = false,
   tickMs = 1000,
   dataDir = process.env.MINDER_DATA_DIR || path.join(ROOT, 'data'),
+  sessionsDir = process.env.MINDER_SESSIONS_DIR || path.join(os.homedir(), '.claude', 'sessions'),
 } = {}): Promise<MinderApp> {
   const configFile = path.join(dataDir, 'config.json');
   const soundsDir = path.join(dataDir, 'sounds');
@@ -59,7 +61,8 @@ export async function createApp({
       return defaultConfig();
     }
   };
-  let state = emptyState();
+  // Sessions already running at startup won't send hooks until they next do something; discover them once.
+  let state = seed(emptyState(), readSessionFiles(sessionsDir), Date.now());
   const clients = new Set<http.ServerResponse>();
   const send = (res: http.ServerResponse, event: string, data: unknown) =>
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -259,4 +262,40 @@ function serveStatic(pathname: string, res: http.ServerResponse) {
   }
   res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
+}
+
+// Reads Claude Code's per-process session files (~/.claude/sessions/<pid>.json), keeping live processes only.
+// Undocumented format (see README): anything unreadable or unexpected is skipped silently.
+export function readSessionFiles(dir: string): SessionFile[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out: SessionFile[] = [];
+  for (const n of names) {
+    try {
+      const f = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+      if (typeof f?.sessionId !== 'string' || !Number.isInteger(f.pid) || !alive(f.pid)) continue;
+      out.push({
+        sessionId: f.sessionId,
+        cwd: typeof f.cwd === 'string' ? f.cwd : undefined,
+        status: typeof f.status === 'string' ? f.status : undefined,
+        statusUpdatedAt: typeof f.statusUpdatedAt === 'number' ? f.statusUpdatedAt : undefined,
+      });
+    } catch {}
+  }
+  return out;
+}
+
+// ponytail: pid check only; a reused pid after a crash could resurrect a dead session until it goes STALE.
+// Compare the file's procStart to the process start time if that ever matters.
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }

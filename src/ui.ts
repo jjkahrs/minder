@@ -13,6 +13,7 @@ export const STATE_LABEL: Record<AgentState, string> = {
   WAITING_INPUT: 'AWAIT INPUT',
   ERROR: 'ERROR',
   IDLE: 'IDLE',
+  SHELL: 'SHELL',
   ENDED: 'ENDED',
   STALE: 'STALE',
 };

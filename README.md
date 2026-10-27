@@ -16,7 +16,9 @@ npm run dev          # Vite HMR for the UI plus the server (restarts on server/s
 
 - `MINDER_PORT` overrides the port (`MINDER_PORT=4800 npm start`). The server binds `127.0.0.1` only.
 - `MINDER_DATA_DIR` overrides where sound config and uploads live (default `./data`).
-- State is in memory only: restarting the server starts empty until new events arrive.
+- `MINDER_SESSIONS_DIR` overrides where Claude Code's session files are read from (default `~/.claude/sessions`).
+- State is in memory only. On startup the server discovers sessions that are already running (see
+  [Startup discovery](#startup-discovery)); everything after that comes from hooks.
 
 ## Hooks
 
@@ -86,8 +88,48 @@ IDLE (`Stop`/`SubagentStop`) and ENDED (`SessionEnd`). Exits 1 with a clear mess
 | AWAIT INPUT | Notification `idle_prompt` / elicitation dialogs | orange `#ff6e21`, pulsing, alert banner |
 | ERROR | PostToolUseFailure | orange cross, 1.5 s flash, then THINKING |
 | IDLE | Stop (session), SubagentStop (subagent) | dim ring |
+| SHELL | startup discovery only: session file `status: "shell"` | blue, still reticle |
 | ENDED | SessionEnd | fades out, removed after 3 s |
 | STALE | no events for 10 min | dimmed; removed after 30 min |
+
+## Startup discovery
+
+Sessions that were running before Minder started don't send hooks until they next do something, so the server
+reads Claude Code's per-process session files **once at startup** and adds every live one it doesn't
+already know. Hook events then take over as usual. Subagents of those sessions are not discoverable this way;
+they appear when they next fire a hook. Discovered sessions follow normal timing (STALE after 10 min of no
+hooks, removed after 30 min).
+
+**This file format is undocumented by Claude Code** and was observed on Windows with versions 2.1.309–2.1.311.
+It may change without notice; Minder skips any file it can't read or that lacks the fields below, so a
+format change means discovery quietly stops, nothing else breaks.
+
+`~/.claude/sessions/<pid>.json` (one per running Claude Code process; a `<pid>.<hash>.key` file sits
+next to each and is ignored). Observed example; the commented fields are the ones Minder uses:
+
+```jsonc
+{
+  "pid": 57264,                                   // process id; files whose process is gone are skipped
+  "sessionId": "d2eced42-f996-4922-99eb-64e00cbd2885", // matches hook session_id
+  "cwd": "C:\\dev\\kast",                       // working directory
+  "status": "idle",                               // busy -> THINKING, idle -> IDLE, shell -> SHELL, other -> IDLE
+  "statusUpdatedAt": 1793114468911,               // ms epoch; becomes the state's start time
+  "startedAt": 1793105991933,
+  "procStart": "134375795909376131",
+  "version": "2.1.311",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "name": "kast-ce",
+  "nameSource": "derived",
+  "updatedAt": 1793114468911,
+  "peerProtocol": 1, "peerFeatures": ["notify_idle", "artifact_yield"],
+  "pidDomain": "win32:...", "messagingSocketPath": "\\\\.\\pipe\\LOCAL\\cc-msg-...", "nameSince": 1793105991933
+}
+```
+
+The meaning of `status: "shell"` isn't documented (it may mean a shell command is running), so it gets its
+own SHELL label rather than a guessed state. Liveness is a plain pid check, so a reused pid could briefly
+resurrect a crashed session until it goes STALE.
 
 ## Sounds
 

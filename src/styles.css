@@ -46,6 +46,7 @@ button:focus-visible, [role='button']:focus-visible { outline: 1px solid var(--a
 .st-TOOL { color: var(--accent); }
 .st-WAITING_PERMISSION, .st-WAITING_INPUT, .st-ERROR { color: var(--warn); }
 .st-IDLE { color: var(--text); }
+.st-SHELL { color: var(--accent2); }
 .st-ENDED, .st-STALE { color: var(--structure); }
 
 .glyph { fill: none; stroke: currentColor; stroke-width: 1.5; }

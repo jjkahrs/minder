@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   emptyState,
   reduce,
+  seed,
   tick,
   summarizeInput,
   LOG_CAP,
@@ -215,5 +216,36 @@ describe('stale / removal (fake timers)', () => {
     expect(s.subagents.a2.state).toBe('THINKING');
     expect(s.subagents.a1).toBeUndefined(); // ...but silent a1 was removed at 30 min
     d.stop();
+  });
+});
+
+describe('seed (sessions running before Minder started)', () => {
+  it('adds unknown sessions with status mapped to a state', () => {
+    const s = seed(
+      emptyState(),
+      [
+        { sessionId: 'a', cwd: 'C:\dev\a', status: 'busy', statusUpdatedAt: 500 },
+        { sessionId: 'b', status: 'idle' },
+        { sessionId: 'c', status: 'shell' },
+        { sessionId: 'd', status: 'something-new' },
+      ],
+      1000,
+    );
+    expect(s.sessions.a).toMatchObject({ state: 'THINKING', stateSince: 500, lastEventAt: 1000, cwd: 'C:\dev\a' });
+    expect(s.sessions.b.state).toBe('IDLE');
+    expect(s.sessions.c.state).toBe('SHELL');
+    expect(s.sessions.d.state).toBe('IDLE');
+    expect(s.sessions.a.log[0]).toMatchObject({ event: 'Discovered', detail: 'busy' });
+  });
+
+  it('never overwrites a session already known from hooks', () => {
+    const prev = run([ev('PreToolUse', { tool_name: 'Bash' })]);
+    const s = seed(prev, [{ sessionId: S, status: 'idle' }], 5000);
+    expect(s.sessions[S]).toEqual(prev.sessions[S]);
+  });
+
+  it('hooks take over a seeded session', () => {
+    const s = reduce(seed(emptyState(), [{ sessionId: S, status: 'shell' }], 1000), ev('UserPromptSubmit'), 2000);
+    expect(s.sessions[S].state).toBe('THINKING');
   });
 });
