@@ -7,7 +7,9 @@
     "build": "vite build",
     "start": "vite build && node server/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "install-hooks": "node hooks/install.ts",
+    "uninstall-hooks": "node hooks/install.ts --uninstall"
   },
   "dependencies": {
     "react": "^19.3.1",
