@@ -64,7 +64,7 @@ export function Sounds({ cfg, onChange }: { cfg: SoundConfig; onChange: (c: Soun
         </button>
       )}
       {open && (
-        <section className="sound-panel brackets" aria-label="sound settings">
+        <section className="sound-panel elbows" aria-label="sound settings">
           <header className="tag">
             AUDIO MATRIX {err && <span className="err">// {err}</span>}
           </header>

@@ -18,9 +18,9 @@ Text / Readout - #e2f1f8 - Primary typography, headers, numeric readouts
 * Hierarchy: Use all-caps with wide letter-spacing (tracking-widest) for headers, tags, and coordinates; clean readable weights for data logs.
 
 # UI Primitives and Components
-* Corner Brackets: Wrap frames in L-shaped geometric corners instead of standard boxed borders.
+* LCARS Elbows & Pills: Frame regions with thick rounded elbows joining a side bar to top/bottom bars, segmented color blocks, and pill-shaped buttons and rows instead of standard boxed borders.
 * Data Visualization: Minimalist linear graphs, radial progress rings, target reticles, and ticking numerical counters.
 
 # General Style Guidelines
 * Motion & Feedback: Use subtle floating, glitch, or fade-in transitions (via tools like Framer Motion or CSS keyframes), keeping animations fast (under 200ms) so the UI feels responsive rather than sluggish.
-* Layering & Asymmetry: Break away from standard web card grids; use off-center radar sweeps, floating sub-panels, and overlapping technical overlays
+* Layering & Asymmetry: Break away from standard web card grids; use asymmetric LCARS frames, floating sub-panels, and overlapping technical overlays
