@@ -2,7 +2,7 @@
 
 Local, read-only monitor for running Claude Code agents and subagents. Claude Code hooks forward every
 relevant event to a small Node server on `127.0.0.1`, which keeps in-memory state and pushes it over SSE
-to a React UI (radar + tree views, detail panel, synthesized or custom sounds).
+to a React UI (LCARS-style display + compact tree view, detail panel, synthesized or custom sounds).
 
 ## Setup
 

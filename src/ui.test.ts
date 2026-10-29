@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { basename, findSelected, formatDuration, orbitPos, sessionPos } from './ui.ts';
+import { basename, findSelected, formatDuration, isActive, lcarsCode } from './ui.ts';
 import { emptyState, reduce } from '../shared/state.ts';
 
 describe('ui helpers', () => {
@@ -11,29 +11,18 @@ describe('ui helpers', () => {
     expect(formatDuration(-5_000)).toBe('00:00');
   });
 
-  it('places sessions within the radar and spreads them out', () => {
-    const R = 360;
-    const pts = Array.from({ length: 12 }, (_, i) => sessionPos(i, R));
-    for (const p of pts) {
-      const r = Math.hypot(p.x, p.y);
-      expect(r).toBeGreaterThanOrEqual(0.32 * R - 1e-9);
-      expect(r).toBeLessThanOrEqual(0.82 * R + 1e-9);
-    }
-    // first few sessions are well separated
-    for (let a = 0; a < 5; a++)
-      for (let b = a + 1; b < 5; b++)
-        expect(Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y)).toBeGreaterThan(80);
-    // stable: adding sessions doesn't move earlier ones
-    expect(sessionPos(0, R)).toEqual(pts[0]);
+  it('derives a stable NN-NNNN code per id', () => {
+    const ids = ['a', 'b', 'session-1', 'session-2', '3f2c9e1a-0000-4000-8000-000000000000'];
+    const codes = ids.map(lcarsCode);
+    for (const c of codes) expect(c).toMatch(/^\d{2}-\d{4}$/);
+    expect(ids.map(lcarsCode)).toEqual(codes);
+    expect(new Set(codes).size).toBe(ids.length);
+    expect(lcarsCode('')).toMatch(/^\d{2}-\d{4}$/);
   });
 
-  it('spaces subagents evenly on the orbit', () => {
-    const [a, b] = [orbitPos(0, 2, 50), orbitPos(1, 2, 50)];
-    expect(a.x).toBeCloseTo(0);
-    expect(a.y).toBeCloseTo(-50);
-    expect(b.x).toBeCloseTo(0);
-    expect(b.y).toBeCloseTo(50);
-    expect(Math.hypot(orbitPos(2, 3, 50).x, orbitPos(2, 3, 50).y)).toBeCloseTo(50);
+  it('marks only THINKING and TOOL as active', () => {
+    const states = ['THINKING', 'TOOL', 'WAITING_PERMISSION', 'WAITING_INPUT', 'ERROR', 'IDLE', 'SHELL', 'ENDED', 'STALE'] as const;
+    expect(states.filter(isActive)).toEqual(['THINKING', 'TOOL']);
   });
 
   it('takes basename of windows and posix paths', () => {

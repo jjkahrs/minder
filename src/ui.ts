@@ -1,4 +1,4 @@
-// Pure UI helpers (layout math, formatting, selection lookup). Unit-tested in ui.test.ts.
+// Pure UI helpers (formatting, readout codes, selection lookup). Unit-tested in ui.test.ts.
 import type { Agent, AgentState, MinderState, Session } from '../shared/state.ts';
 
 export interface Selection {
@@ -36,22 +36,16 @@ export function formatDuration(ms: number): string {
 
 export const formatClock = (t: number) => new Date(t).toTimeString().slice(0, 8);
 
-// Session i on the radar, relative to the radar center. Golden-angle spread keeps
-// earlier sessions in place as new ones arrive; radius cycles between 0.32R and 0.82R.
-export function sessionPos(i: number, R: number) {
-  const angle = ((-90 + i * 137.508) * Math.PI) / 180;
-  const r = R * (0.32 + 0.5 * ((i * 0.618034) % 1));
-  return { x: r * Math.cos(angle), y: r * Math.sin(angle) };
+// Stable LCARS-style readout code for an id, e.g. "47-2291" (FNV-1a hash).
+export function lcarsCode(id: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  const n = (h >>> 0) % 1_000_000;
+  return `${String(Math.floor(n / 10_000)).padStart(2, '0')}-${String(n % 10_000).padStart(4, '0')}`;
 }
 
-// Subagent j of n, evenly spaced on an orbit around its parent (starting at 12 o'clock).
-export function orbitPos(j: number, n: number, radius: number) {
-  const angle = -Math.PI / 2 + (2 * Math.PI * j) / Math.max(n, 1);
-  return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
-}
-
-// Orbit grows with subagent count so nodes don't overlap.
-export const orbitRadius = (n: number) => 46 + Math.max(0, n - 4) * 6;
+// Activity bars animate only while the agent is doing work.
+export const isActive = (s: AgentState) => s === 'THINKING' || s === 'TOOL';
 
 export function findSelected(state: MinderState, sel: Selection | null): { session: Session; agent: Agent } | null {
   const session = sel && state.sessions[sel.sessionId];

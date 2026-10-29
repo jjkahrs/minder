@@ -12,7 +12,7 @@ export function Detail({ session, agent, now, onClose }: { session: Session; age
   }, [agent.id, last]);
 
   return (
-    <aside className="detail brackets" aria-label="agent detail">
+    <aside className="detail elbows" aria-label="agent detail">
       <header>
         <span className="tag">{isSub ? 'SUBAGENT' : 'SESSION'} // TARGET LOCK</span>
         <button className="close" onClick={onClose} aria-label="close detail">

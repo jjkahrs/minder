@@ -1,6 +1,6 @@
 import type { AgentState } from '../shared/state.ts';
 
-// State reticle drawn at (x, y). Shared by the radar and the tree view; color and
+// State reticle drawn at (x, y). Shared by the LCARS, tree and detail views; color and
 // animation come from the `st-<STATE>` class in styles.css (currentColor).
 export function Glyph({ state, x = 0, y = 0, r = 10, selected = false }: { state: AgentState; x?: number; y?: number; r?: number; selected?: boolean }) {
   const t = r * 0.45; // bracket arm length

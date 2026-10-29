@@ -1,5 +1,6 @@
 import type { Agent, MinderState } from '../shared/state.ts';
 import { Glyph } from './Glyph.tsx';
+import { Empty } from './Lcars.tsx';
 import { basename, formatDuration, shortId, STATE_LABEL, type Selection } from './ui.ts';
 
 export function Tree({ state, sel, now, onSelect }: { state: MinderState; sel: Selection | null; now: number; onSelect: (s: Selection) => void }) {
@@ -18,11 +19,11 @@ export function Tree({ state, sel, now, onSelect }: { state: MinderState; sel: S
 
   return (
     <div className="tree">
-      {sessions.length === 0 && <p className="empty">NO CONTACTS // AWAITING HOOK TRAFFIC</p>}
+      {sessions.length === 0 && <Empty />}
       {sessions.map((s) => {
         const subs = Object.values(s.subagents);
         return (
-          <section key={s.id} className={`brackets tree-session st-${s.state}`}>
+          <section key={s.id} className={`tree-session elbows st-${s.state}`}>
             <header className="tag">
               SID {shortId(s.id)} <span className="dim">{s.cwd}</span>
             </header>

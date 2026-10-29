@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { soundKeyFor } from '../shared/sounds.ts';
 import type { MinderState } from '../shared/state.ts';
 import { Detail } from './Detail.tsx';
-import { Radar } from './Radar.tsx';
+import { Lcars } from './Lcars.tsx';
 import { playSound } from './sound.ts';
 import { Sounds, useSoundConfig } from './Sounds.tsx';
 import { Tree } from './Tree.tsx';
@@ -11,7 +11,7 @@ import { findSelected, isWaiting, type Selection } from './ui.ts';
 export function App() {
   const [state, setState] = useState<MinderState>({ sessions: {} });
   const [connected, setConnected] = useState(false);
-  const [view, setView] = useState<'radar' | 'tree'>('radar');
+  const [view, setView] = useState<'lcars' | 'tree'>('lcars');
   const [sel, setSel] = useState<Selection | null>(null);
   const [now, setNow] = useState(Date.now());
   const [cfg, setCfg] = useSoundConfig();
@@ -55,40 +55,54 @@ export function App() {
   const selected = findSelected(state, sel);
 
   return (
-    <div className={`app view-${view}`}>
-      {view === 'radar' ? <Radar state={state} sel={sel} onSelect={setSel} /> : <Tree state={state} sel={sel} now={now} onSelect={setSel} />}
-
-      <header className="hud">
+    <div className={`app view-${view}${selected ? ' has-detail' : ''}`}>
+      <div className="elbow top" aria-hidden />
+      <header className="hud bar">
+        <i className="seg" />
         <h1>
           MINDER <span className="dim">// AGENT TELEMETRY</span>
         </h1>
-        <div className="counts">
-          <span>
-            SESSIONS <b>{sessions.length}</b>
-          </span>
-          <span>
-            AGENTS <b>{agents.length}</b>
-          </span>
-        </div>
+        <i className="seg fill" />
         <div className="toggle" role="tablist" aria-label="view">
-          {(['radar', 'tree'] as const).map((v) => (
+          {(['lcars', 'tree'] as const).map((v) => (
             <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
               {v}
             </button>
           ))}
         </div>
+        <div className={`link ${connected ? 'up' : 'down'}`} role="status">
+          <i /> {connected ? 'LINK ONLINE' : 'NO SIGNAL // RECONNECTING'}
+        </div>
       </header>
 
-      <div className={`link ${connected ? 'up' : 'down'}`} role="status">
-        <i /> {connected ? 'LINK ONLINE' : 'NO SIGNAL // RECONNECTING'}
-      </div>
-      {cfg && <Sounds cfg={cfg} onChange={setCfg} />}
+      <nav className="sidebar" aria-label="counts">
+        <span className="blk a2">
+          SESSIONS <b>{sessions.length}</b>
+        </span>
+        <span className="blk">
+          AGENTS <b>{agents.length}</b>
+        </span>
+        <span className={`blk${waiting ? ' warn' : ''}`}>
+          WAITING <b>{waiting}</b>
+        </span>
+        <span className="blk fill" />
+      </nav>
 
-      {waiting > 0 && (
-        <div className="alert" role="alert">
-          ▲ {waiting} AGENT{waiting > 1 ? 'S' : ''} AWAITING OPERATOR
-        </div>
-      )}
+      <main className="content">
+        {waiting > 0 && (
+          <div className="alert" role="alert">
+            ▲ {waiting} AGENT{waiting > 1 ? 'S' : ''} AWAITING OPERATOR
+          </div>
+        )}
+        {view === 'lcars' ? <Lcars state={state} sel={sel} now={now} onSelect={setSel} /> : <Tree state={state} sel={sel} now={now} onSelect={setSel} />}
+      </main>
+
+      <div className="elbow bottom" aria-hidden />
+      <footer className="bar bottom-bar">
+        <i className="seg" />
+        {cfg && <Sounds cfg={cfg} onChange={setCfg} />}
+        <i className="seg fill" />
+      </footer>
 
       {selected && <Detail session={selected.session} agent={selected.agent} now={now} onClose={() => setSel(null)} />}
     </div>
